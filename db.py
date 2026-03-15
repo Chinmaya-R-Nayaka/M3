@@ -5,4 +5,5 @@ import streamlit as st
 
 def get_database():
     client = MongoClient(st.secrets["MONGO_URI"])
-    return client["M3_pediatric_db"]
+    return client["m3_pediatric_db"]
+ 
