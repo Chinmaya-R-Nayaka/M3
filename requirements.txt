@@ -1,5 +1,7 @@
 streamlit
+fastapi
+uvicorn
 pymongo
+python-dotenv
 pandas
 requests
-python-dotenv
