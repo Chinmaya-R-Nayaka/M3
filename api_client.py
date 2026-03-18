@@ -163,170 +163,116 @@
 
 
 """
-M3 Pediatric System – FastAPI Backend
-Run with:
-uvicorn backend:app --host 0.0.0.0 --port 8000
+API Client for M3 Pediatric System
 """
 
-from datetime import datetime
-from bson import ObjectId
-from fastapi import FastAPI, HTTPException, status
-from fastapi.middleware.cors import CORSMiddleware
+from datetime import date
+import requests
+import os
 
-from db import get_database
-from models import (
-    PatientCreate, PatientResponse,
-    GrowthCreate, GrowthResponse,
-    ImmunizationCreate, ImmunizationResponse,
-    MilestoneCreate, MilestoneResponse,
-    AlertItem, AlertsResponse,
-    MessageResponse,
+# ------------------------------------------------------------------
+# BASE URL
+# ------------------------------------------------------------------
+
+BASE_URL = os.getenv(
+    "API_BASE_URL",
+    "http://localhost:8000"
 )
 
-from services import (
-    calculate_age_in_months,
-    calculate_growth_percentile,
-    check_who_growth,
-    calculate_bmi,
-    generate_recommendation,
-    check_immunization_delay,
-    check_milestone_delay,
-)
+HEADERS = {
+    "Content-Type": "application/json",
+    "User-Agent": "streamlit-app"
+}
 
-# ------------------------------------------------------------------
-# APP
-# ------------------------------------------------------------------
-
-app = FastAPI(
-    title="M3 Pediatric Clinical API",
-    version="1.0.0"
-)
-
-# Important for Streamlit Cloud
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# ------------------------------------------------------------------
-# DATABASE
-# ------------------------------------------------------------------
-
-db = get_database()
-
-patients_col = db["patients"]
-growth_col = db["growth"]
-immunization_col = db["immunization"]
-milestone_col = db["milestones"]
-alert_col = db["alerts"]
+TIMEOUT = 15
 
 
 # ------------------------------------------------------------------
-# HELPERS
+# INTERNAL REQUEST HELPERS
 # ------------------------------------------------------------------
 
-def oid(id_str: str):
-    try:
-        return ObjectId(id_str)
-    except:
-        raise HTTPException(status_code=400, detail="Invalid ID")
+def _get(path):
+
+    r = requests.get(
+        f"{BASE_URL}{path}",
+        headers=HEADERS,
+        timeout=TIMEOUT
+    )
+
+    r.raise_for_status()
+    return r.json()
+
+
+def _post(path, payload):
+
+    r = requests.post(
+        f"{BASE_URL}{path}",
+        json=payload,
+        headers=HEADERS,
+        timeout=TIMEOUT
+    )
+
+    r.raise_for_status()
+    return r.json()
+
+
+def _patch(path):
+
+    r = requests.patch(
+        f"{BASE_URL}{path}",
+        headers=HEADERS,
+        timeout=TIMEOUT
+    )
+
+    r.raise_for_status()
+    return r.json()
+
+
+def _delete(path):
+
+    r = requests.delete(
+        f"{BASE_URL}{path}",
+        headers=HEADERS,
+        timeout=TIMEOUT
+    )
+
+    r.raise_for_status()
+    return r.json()
 
 
 # ------------------------------------------------------------------
-# PATIENT ENDPOINTS
+# PATIENT API
 # ------------------------------------------------------------------
 
-@app.get("/patients", response_model=list[PatientResponse])
-def get_patients():
-    docs = list(patients_col.find().sort("created_at", -1))
-
-    results = []
-    for d in docs:
-        results.append({
-            "id": str(d["_id"]),
-            "name": d["name"],
-            "dob": d["dob"],
-            "gender": d["gender"],
-            "age_months": d["age_months"],
-            "created_at": d["created_at"]
-        })
-
-    return results
+def get_all_patients():
+    return _get("/patients")
 
 
-@app.post("/patients", response_model=PatientResponse, status_code=201)
-def create_patient(body: PatientCreate):
+def get_patient(patient_id):
+    return _get(f"/patients/{patient_id}")
 
-    age_months = calculate_age_in_months(body.dob)
 
-    doc = {
-        "name": body.name,
-        "dob": body.dob.strftime("%Y-%m-%d"),
-        "gender": body.gender,
-        "age_months": age_months,
-        "created_at": datetime.now()
+def create_patient(name: str, dob: date, gender: str):
+
+    payload = {
+        "name": name,
+        "dob": dob.isoformat(),
+        "gender": gender
     }
 
-    result = patients_col.insert_one(doc)
-    doc["_id"] = result.inserted_id
-
-    return {
-        "id": str(doc["_id"]),
-        "name": doc["name"],
-        "dob": doc["dob"],
-        "gender": doc["gender"],
-        "age_months": doc["age_months"],
-        "created_at": doc["created_at"]
-    }
+    return _post("/patients", payload)
 
 
-@app.delete("/patients/{patient_id}", response_model=MessageResponse)
-def delete_patient(patient_id: str):
-
-    patient = patients_col.find_one({"_id": oid(patient_id)})
-
-    if not patient:
-        raise HTTPException(status_code=404, detail="Patient not found")
-
-    patients_col.delete_one({"_id": oid(patient_id)})
-    growth_col.delete_many({"patient_id": oid(patient_id)})
-    immunization_col.delete_many({"patient_id": oid(patient_id)})
-    milestone_col.delete_many({"patient_id": oid(patient_id)})
-    alert_col.delete_many({"patient_id": oid(patient_id)})
-
-    return {"message": "Patient deleted"}
+def delete_patient(patient_id):
+    return _delete(f"/patients/{patient_id}")
 
 
 # ------------------------------------------------------------------
 # ALERTS
 # ------------------------------------------------------------------
 
-@app.get("/alerts", response_model=AlertsResponse)
-def get_alerts():
+def get_all_alerts():
 
-    alerts = []
-
-    for rec in immunization_col.find({"delayed": True}):
-        patient = patients_col.find_one({"_id": rec["patient_id"]})
-
-        alerts.append(AlertItem(
-            patient_name=patient["name"] if patient else "Unknown",
-            alert_type="Immunization Delay",
-            detail=rec["vaccine_name"],
-            scheduled_date=rec["scheduled_date"]
-        ))
-
-    return AlertsResponse(alerts=alerts)
-
-
-# ------------------------------------------------------------------
-# HEALTH CHECK
-# ------------------------------------------------------------------
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+    data = _get("/alerts")
+    return data.get("alerts", [])
 
