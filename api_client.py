@@ -8,12 +8,13 @@ The Streamlit app imports from here and never calls `requests` directly.
 from datetime import date
 import requests
 import streamlit as st
+import os
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Base URL – override via Streamlit secrets or fall back to localhost
 # ──────────────────────────────────────────────────────────────────────────────
 
-BASE_URL: str = st.secrets.get("API_BASE_URL", "http://localhost:8000")
+BASE_URL: str = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
