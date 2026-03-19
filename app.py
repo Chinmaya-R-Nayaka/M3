@@ -578,12 +578,10 @@ def custom_warning(msg, *args, **kwargs):
 st.success = custom_success
 st.error = custom_error
 st.warning = custom_warning
-# -------------------------------------
 
 # --- Global CSS ---
 st.markdown("""
 <style>
-    /* Red Primary Buttons */
     div.stButton > button[kind="primary"], div.stButton > button[data-testid="baseButton-primary"] {
         background-color: #ff4b4b !important;
         color: white !important;
@@ -598,9 +596,6 @@ st.markdown("""
 
 st.title("🏥 M3 - Pediatric Clinical Data System")
 st.markdown("---")
-
-
-# Navigation
 
 MENU_OPTIONS = [
     "Add Patient",
@@ -623,11 +618,7 @@ menu = st.sidebar.selectbox(
 st.session_state.menu = menu
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Helper: fetch patients and build name → id dict; show warning if empty
-# ──────────────────────────────────────────────────────────────────────────────
-
 def _load_patient_dict() -> dict[str, str]:
-    """Returns {patient_name: patient_id} or stops the page if none exist."""
     try:
         patients = api.get_all_patients()
     except requests.RequestException as e:
@@ -639,25 +630,17 @@ def _load_patient_dict() -> dict[str, str]:
         st.warning("No patients found. Please add a patient first.")
         st.stop()
 
-    return {p["name"]: p["id"] for p in patients}
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Error wrapper
-# ──────────────────────────────────────────────────────────────────────────────
+    # Append a short ID to handle duplicate names
+    return {f"{p['name']} ({p['id'][:4]})": p["id"] for p in patients}
 
 def _api_error(e: requests.HTTPError) -> None:
-    """Display a user-friendly error from an HTTPError response."""
     try:
         detail = e.response.json().get("detail", str(e))
     except Exception:
         detail = str(e)
     st.error(f"API error: {detail}")
 
-
 # ══════════════════════════════════════════════════════════════════════════════
-# ADD PATIENT
-# ══════════════════════════════════════════════════════════════════════════════
-
 if menu == "Add Patient":
     st.header("👶 Add New Pediatric Patient")
 
@@ -683,14 +666,9 @@ if menu == "Add Patient":
             except requests.RequestException as e:
                 st.error(f"Could not reach API: {e}")
 
-
 # ══════════════════════════════════════════════════════════════════════════════
-# ADD GROWTH RECORD
-# ══════════════════════════════════════════════════════════════════════════════
-
 elif menu == "Add Growth Record":
     st.header("📈 Add Growth Measurement")
-
     patient_dict = _load_patient_dict()
 
     selected_name    = st.selectbox("Select Patient", list(patient_dict.keys()))
@@ -702,7 +680,6 @@ elif menu == "Add Growth Record":
     if st.button("Save Growth Record", type="primary"):
         try:
             record = api.create_growth_record(selected_patient, weight, height)
-
             st.success("Growth record added successfully.")
 
             st.subheader("📊 Growth Analysis")
@@ -725,14 +702,9 @@ elif menu == "Add Growth Record":
         except requests.RequestException as e:
             st.error(f"Could not reach API: {e}")
 
-
 # ══════════════════════════════════════════════════════════════════════════════
-# ADD IMMUNIZATION
-# ══════════════════════════════════════════════════════════════════════════════
-
 elif menu == "Add Immunization":
     st.header("💉 Add Immunization Record")
-
     patient_dict = _load_patient_dict()
 
     selected_name    = st.selectbox("Select Patient", list(patient_dict.keys()))
@@ -762,14 +734,9 @@ elif menu == "Add Immunization":
             except requests.RequestException as e:
                 st.error(f"Could not reach API: {e}")
 
-
 # ══════════════════════════════════════════════════════════════════════════════
-# ADD MILESTONE
-# ══════════════════════════════════════════════════════════════════════════════
-
 elif menu == "Add Milestone":
     st.header("🏆 Add Developmental Milestone")
-
     patient_dict = _load_patient_dict()
 
     selected_name    = st.selectbox("Select Patient", list(patient_dict.keys()))
@@ -804,11 +771,7 @@ elif menu == "Add Milestone":
             except requests.RequestException as e:
                 st.error(f"Could not reach API: {e}")
 
-
 # ══════════════════════════════════════════════════════════════════════════════
-# VIEW PATIENTS
-# ══════════════════════════════════════════════════════════════════════════════
-
 elif menu == "View Patients":
     st.header("📋 Patient Records")
 
@@ -853,15 +816,10 @@ elif menu == "View Patients":
                 except requests.RequestException as e:
                     st.error(f"Could not reach API: {e}")
 
-
 # ══════════════════════════════════════════════════════════════════════════════
-# VIEW PATIENT DETAILS
-# ══════════════════════════════════════════════════════════════════════════════
-
 elif menu == "View Patient Details":
     st.header("📝 Patient Complete Record")
 
-    # Resolve which patient to display
     if "selected_patient_id" in st.session_state:
         selected_patient_id = st.session_state["selected_patient_id"]
     else:
@@ -869,7 +827,6 @@ elif menu == "View Patient Details":
         selected_name       = st.selectbox("Select Patient", list(patient_dict.keys()))
         selected_patient_id = patient_dict[selected_name]
 
-    # ── Fetch patient profile ─────────────────────────────────────────────────
     try:
         patient = api.get_patient(selected_patient_id)
     except requests.HTTPError:
@@ -888,7 +845,6 @@ elif menu == "View Patient Details":
 
     st.markdown("---")
 
-    # ── Fetch all sub-records ─────────────────────────────────────────────────
     try:
         growth_records       = api.get_growth_records(selected_patient_id)
         immunization_records = api.get_immunization_records(selected_patient_id)
@@ -897,7 +853,6 @@ elif menu == "View Patient Details":
         st.error(f"Could not fetch records: {e}")
         st.stop()
 
-    # ── Health alert banner ───────────────────────────────────────────────────
     imm_delays = [r for r in immunization_records if r["delayed"]]
     ms_delays  = [r for r in milestone_records    if r["delayed"]]
     total      = len(imm_delays) + len(ms_delays)
@@ -909,7 +864,6 @@ elif menu == "View Patient Details":
 
     st.markdown("---")
 
-    # ── Growth records ────────────────────────────────────────────────────────
     st.subheader("📈 Growth Records")
     if growth_records:
         for g in growth_records:
@@ -933,7 +887,6 @@ elif menu == "View Patient Details":
 
     st.markdown("---")
 
-    # ── Immunization records ──────────────────────────────────────────────────
     st.subheader("💉 Immunization Records")
     if immunization_records:
         display = [{
@@ -948,7 +901,6 @@ elif menu == "View Patient Details":
 
     st.markdown("---")
 
-    # ── Milestone records ─────────────────────────────────────────────────────
     st.subheader("🏆 Milestone Records")
     if milestone_records:
         display = [{
@@ -964,7 +916,6 @@ elif menu == "View Patient Details":
 
     st.markdown("---")
 
-    # ── Immunization delays with resolve ─────────────────────────────────────
     st.subheader("⚠️ Immunization Delays")
     if imm_delays:
         h1, h2, h3, h4 = st.columns([3, 3, 2, 1])
@@ -992,7 +943,6 @@ elif menu == "View Patient Details":
 
     st.markdown("---")
 
-    # ── Milestone delays with resolve ─────────────────────────────────────────
     st.subheader("⚠️ Milestone Delays")
     if ms_delays:
         h1, h2, h3, h4, h5 = st.columns([3, 2, 2, 2, 1])
@@ -1025,11 +975,7 @@ elif menu == "View Patient Details":
         st.session_state.menu = "View Patients"
         st.rerun()
 
-
 # ══════════════════════════════════════════════════════════════════════════════
-# VIEW ALERTS
-# ══════════════════════════════════════════════════════════════════════════════
-
 elif menu == "View Alerts":
     st.header("🚨 Generated Alerts")
 
