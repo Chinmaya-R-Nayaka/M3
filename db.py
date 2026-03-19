@@ -30,9 +30,17 @@ def get_database() -> Database:
     """
     global _client
     mongo_uri = os.getenv("MONGO_URI")
-    print("DEBUG MONGO_URI:", mongo_uri)
+    
     if not mongo_uri:
         raise RuntimeError("MONGO_URI environment variable is not set.")
+        
+    # FORCE CLEAN THE STRING: remove all spaces, newlines, and literal quotes
+    clean_uri = mongo_uri.strip().strip('"').strip("'")
+    
+    # Adding brackets to the print statement helps visualize if any weird spaces remain
+    print(f"DEBUG MONGO_URI: [{clean_uri}]") 
+
     if _client is None:
-        _client = MongoClient(mongo_uri)
+        _client = MongoClient(clean_uri)
+        
     return _client["m3_pediatric_db"]
