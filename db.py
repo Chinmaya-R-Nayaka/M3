@@ -30,6 +30,7 @@ def get_database() -> Database:
     """
     global _client
     mongo_uri = os.getenv("MONGO_URI")
+    print("DEBUG MONGO_URI:", mongo_uri)
     if not mongo_uri:
         raise RuntimeError("MONGO_URI environment variable is not set.")
     if _client is None:
