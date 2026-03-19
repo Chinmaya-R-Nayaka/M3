@@ -408,7 +408,7 @@ uvicorn backend:app --host 0.0.0.0 --port 8000
 
 from datetime import datetime
 from bson import ObjectId
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from db import get_database
@@ -431,16 +431,15 @@ from services import (
     check_milestone_delay,
 )
 
-# ------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────
 # APP
-# ------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────
 
 app = FastAPI(
     title="M3 Pediatric Clinical API",
     version="1.0.0"
 )
 
-# Important for Streamlit Cloud
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -449,9 +448,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────
 # DATABASE
-# ------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────
 
 db = get_database()
 
@@ -461,10 +460,9 @@ immunization_col = db["immunization"]
 milestone_col = db["milestones"]
 alert_col = db["alerts"]
 
-
-# ------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────
 # HELPERS
-# ------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────
 
 def oid(id_str: str):
     try:
@@ -472,32 +470,49 @@ def oid(id_str: str):
     except:
         raise HTTPException(status_code=400, detail="Invalid ID")
 
+# ─────────────────────────────────────────────────────────────
+# HEALTH
+# ─────────────────────────────────────────────────────────────
 
-# ------------------------------------------------------------------
-# PATIENT ENDPOINTS
-# ------------------------------------------------------------------
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+# ─────────────────────────────────────────────────────────────
+# PATIENTS
+# ─────────────────────────────────────────────────────────────
 
 @app.get("/patients", response_model=list[PatientResponse])
 def get_patients():
     docs = list(patients_col.find().sort("created_at", -1))
+    return [{
+        "id": str(d["_id"]),
+        "name": d["name"],
+        "dob": d["dob"],
+        "gender": d["gender"],
+        "age_months": d["age_months"],
+        "created_at": d["created_at"]
+    } for d in docs]
 
-    results = []
-    for d in docs:
-        results.append({
-            "id": str(d["_id"]),
-            "name": d["name"],
-            "dob": d["dob"],
-            "gender": d["gender"],
-            "age_months": d["age_months"],
-            "created_at": d["created_at"]
-        })
 
-    return results
+@app.get("/patients/{patient_id}", response_model=PatientResponse)
+def get_patient(patient_id: str):
+    d = patients_col.find_one({"_id": oid(patient_id)})
+    if not d:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    return {
+        "id": str(d["_id"]),
+        "name": d["name"],
+        "dob": d["dob"],
+        "gender": d["gender"],
+        "age_months": d["age_months"],
+        "created_at": d["created_at"]
+    }
 
 
 @app.post("/patients", response_model=PatientResponse, status_code=201)
 def create_patient(body: PatientCreate):
-
     age_months = calculate_age_in_months(body.dob)
 
     doc = {
@@ -523,24 +538,151 @@ def create_patient(body: PatientCreate):
 
 @app.delete("/patients/{patient_id}", response_model=MessageResponse)
 def delete_patient(patient_id: str):
-
-    patient = patients_col.find_one({"_id": oid(patient_id)})
-
-    if not patient:
+    if not patients_col.find_one({"_id": oid(patient_id)}):
         raise HTTPException(status_code=404, detail="Patient not found")
 
     patients_col.delete_one({"_id": oid(patient_id)})
     growth_col.delete_many({"patient_id": oid(patient_id)})
     immunization_col.delete_many({"patient_id": oid(patient_id)})
     milestone_col.delete_many({"patient_id": oid(patient_id)})
-    alert_col.delete_many({"patient_id": oid(patient_id)})
 
     return {"message": "Patient deleted"}
 
+# ─────────────────────────────────────────────────────────────
+# GROWTH
+# ─────────────────────────────────────────────────────────────
 
-# ------------------------------------------------------------------
+@app.post("/growth", response_model=GrowthResponse)
+def create_growth(body: GrowthCreate):
+
+    patient = patients_col.find_one({"_id": oid(body.patient_id)})
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    bmi, bmi_status = calculate_bmi(body.weight, body.height)
+    percentile = calculate_growth_percentile(body.weight, body.height)
+    weight_status, height_status = check_who_growth(
+        patient["age_months"], body.weight, body.height
+    )
+
+    recs = generate_recommendation(weight_status, height_status, bmi_status)
+
+    doc = {
+        "patient_id": oid(body.patient_id),
+        "weight": body.weight,
+        "height": body.height,
+        "bmi": bmi,
+        "bmi_status": bmi_status,
+        "weight_status": weight_status,
+        "height_status": height_status,
+        "percentile": percentile,
+        "recommendations": recs,
+        "recorded_at": datetime.now()
+    }
+
+    result = growth_col.insert_one(doc)
+    doc["_id"] = result.inserted_id
+
+    return {
+        "id": str(doc["_id"]),
+        "patient_id": body.patient_id,
+        "patient_name": patient["name"],
+        **doc
+    }
+
+
+@app.get("/growth/{patient_id}")
+def get_growth(patient_id: str):
+    docs = list(growth_col.find({"patient_id": oid(patient_id)}))
+    for d in docs:
+        d["_id"] = str(d["_id"])
+        d["patient_id"] = str(d["patient_id"])
+    return docs
+
+# ─────────────────────────────────────────────────────────────
+# IMMUNIZATION
+# ─────────────────────────────────────────────────────────────
+
+@app.post("/immunization", response_model=ImmunizationResponse)
+def create_immunization(body: ImmunizationCreate):
+
+    patient = patients_col.find_one({"_id": oid(body.patient_id)})
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    delayed = check_immunization_delay(body.scheduled_date)
+
+    doc = {
+        "patient_id": oid(body.patient_id),
+        "vaccine_name": body.vaccine_name,
+        "scheduled_date": body.scheduled_date.isoformat(),
+        "delayed": delayed,
+        "created_at": datetime.now()
+    }
+
+    result = immunization_col.insert_one(doc)
+    doc["_id"] = result.inserted_id
+
+    return {
+        "id": str(doc["_id"]),
+        "patient_id": body.patient_id,
+        "patient_name": patient["name"],
+        **doc
+    }
+
+
+@app.get("/immunization/{patient_id}")
+def get_immunization(patient_id: str):
+    docs = list(immunization_col.find({"patient_id": oid(patient_id)}))
+    for d in docs:
+        d["_id"] = str(d["_id"])
+        d["patient_id"] = str(d["patient_id"])
+    return docs
+
+# ─────────────────────────────────────────────────────────────
+# MILESTONE
+# ─────────────────────────────────────────────────────────────
+
+@app.post("/milestones", response_model=MilestoneResponse)
+def create_milestone(body: MilestoneCreate):
+
+    patient = patients_col.find_one({"_id": oid(body.patient_id)})
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    delayed = check_milestone_delay(body.expected_age, body.achieved_age)
+
+    doc = {
+        "patient_id": oid(body.patient_id),
+        "milestone_name": body.milestone_name,
+        "expected_age": body.expected_age,
+        "achieved_age": body.achieved_age,
+        "delayed": delayed,
+        "created_at": datetime.now()
+    }
+
+    result = milestone_col.insert_one(doc)
+    doc["_id"] = result.inserted_id
+
+    return {
+        "id": str(doc["_id"]),
+        "patient_id": body.patient_id,
+        "patient_name": patient["name"],
+        **doc
+    }
+
+
+@app.get("/milestones/{patient_id}")
+def get_milestones(patient_id: str):
+    docs = list(milestone_col.find({"patient_id": oid(patient_id)}))
+    for d in docs:
+        d["_id"] = str(d["_id"])
+        d["patient_id"] = str(d["patient_id"])
+    return docs
+
+# ─────────────────────────────────────────────────────────────
 # ALERTS
-# ------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────
 
 @app.get("/alerts", response_model=AlertsResponse)
 def get_alerts():
@@ -560,18 +702,3 @@ def get_alerts():
     return AlertsResponse(alerts=alerts)
 
 
-# ------------------------------------------------------------------
-# HEALTH CHECK
-# ------------------------------------------------------------------
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-
-# # Health check
-# # ──────────────────────────────────────────────────────────────────────────────
-
-# @app.get("/health", tags=["System"])
-# def health_check():
-#     return {"status": "ok", "service": "M3 Pediatric API"}
