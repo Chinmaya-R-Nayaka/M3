@@ -554,7 +554,6 @@ def delete_patient(patient_id: str):
 
 @app.post("/growth", response_model=GrowthResponse)
 def create_growth(body: GrowthCreate):
-
     patient = patients_col.find_one({"_id": oid(body.patient_id)})
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
@@ -581,22 +580,24 @@ def create_growth(body: GrowthCreate):
     }
 
     result = growth_col.insert_one(doc)
-    doc["_id"] = result.inserted_id
+    
+    # Safely convert ObjectIds to strings for the response
+    doc["id"] = str(doc.pop("_id"))
+    doc["patient_id"] = body.patient_id
+    doc["patient_name"] = patient["name"]
 
-    return {
-        "id": str(doc["_id"]),
-        "patient_id": body.patient_id,
-        "patient_name": patient["name"],
-        **doc
-    }
-
+    return doc
 
 @app.get("/growth/{patient_id}")
 def get_growth(patient_id: str):
+    patient = patients_col.find_one({"_id": oid(patient_id)})
+    p_name = patient["name"] if patient else "Unknown"
+
     docs = list(growth_col.find({"patient_id": oid(patient_id)}))
     for d in docs:
-        d["_id"] = str(d["_id"])
+        d["id"] = str(d.pop("_id"))  # Rename _id to id
         d["patient_id"] = str(d["patient_id"])
+        d["patient_name"] = p_name
     return docs
 
 # ─────────────────────────────────────────────────────────────
@@ -605,7 +606,6 @@ def get_growth(patient_id: str):
 
 @app.post("/immunization", response_model=ImmunizationResponse)
 def create_immunization(body: ImmunizationCreate):
-
     patient = patients_col.find_one({"_id": oid(body.patient_id)})
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
@@ -621,15 +621,25 @@ def create_immunization(body: ImmunizationCreate):
     }
 
     result = immunization_col.insert_one(doc)
-    doc["_id"] = result.inserted_id
+    
+    # Safely convert ObjectIds to strings for the response
+    doc["id"] = str(doc.pop("_id"))
+    doc["patient_id"] = body.patient_id
+    doc["patient_name"] = patient["name"]
 
-    return {
-        "id": str(doc["_id"]),
-        "patient_id": body.patient_id,
-        "patient_name": patient["name"],
-        **doc
-    }
+    return doc
 
+@app.get("/immunization/{patient_id}")
+def get_immunization(patient_id: str):
+    patient = patients_col.find_one({"_id": oid(patient_id)})
+    p_name = patient["name"] if patient else "Unknown"
+
+    docs = list(immunization_col.find({"patient_id": oid(patient_id)}))
+    for d in docs:
+        d["id"] = str(d.pop("_id")) # Rename _id to id
+        d["patient_id"] = str(d["patient_id"])
+        d["patient_name"] = p_name
+    return docs
 
 @app.patch("/immunization/{record_id}/resolve", response_model=MessageResponse)
 def resolve_immunization(record_id: str):
@@ -642,22 +652,12 @@ def resolve_immunization(record_id: str):
     
     return {"message": "Immunization delay resolved."}
 
-
-@app.get("/immunization/{patient_id}")
-def get_immunization(patient_id: str):
-    docs = list(immunization_col.find({"patient_id": oid(patient_id)}))
-    for d in docs:
-        d["_id"] = str(d["_id"])
-        d["patient_id"] = str(d["patient_id"])
-    return docs
-
 # ─────────────────────────────────────────────────────────────
 # MILESTONE
 # ─────────────────────────────────────────────────────────────
 
 @app.post("/milestones", response_model=MilestoneResponse)
 def create_milestone(body: MilestoneCreate):
-
     patient = patients_col.find_one({"_id": oid(body.patient_id)})
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
@@ -674,15 +674,25 @@ def create_milestone(body: MilestoneCreate):
     }
 
     result = milestone_col.insert_one(doc)
-    doc["_id"] = result.inserted_id
+    
+    # Safely convert ObjectIds to strings for the response
+    doc["id"] = str(doc.pop("_id"))
+    doc["patient_id"] = body.patient_id
+    doc["patient_name"] = patient["name"]
 
-    return {
-        "id": str(doc["_id"]),
-        "patient_id": body.patient_id,
-        "patient_name": patient["name"],
-        **doc
-    }
+    return doc
 
+@app.get("/milestones/{patient_id}")
+def get_milestones(patient_id: str):
+    patient = patients_col.find_one({"_id": oid(patient_id)})
+    p_name = patient["name"] if patient else "Unknown"
+
+    docs = list(milestone_col.find({"patient_id": oid(patient_id)}))
+    for d in docs:
+        d["id"] = str(d.pop("_id")) # Rename _id to id
+        d["patient_id"] = str(d["patient_id"])
+        d["patient_name"] = p_name
+    return docs
 
 @app.patch("/milestones/{record_id}/resolve", response_model=MessageResponse)
 def resolve_milestone(record_id: str):
@@ -694,15 +704,6 @@ def resolve_milestone(record_id: str):
         raise HTTPException(status_code=404, detail="Milestone record not found")
     
     return {"message": "Milestone delay resolved."}
-
-
-@app.get("/milestones/{patient_id}")
-def get_milestones(patient_id: str):
-    docs = list(milestone_col.find({"patient_id": oid(patient_id)}))
-    for d in docs:
-        d["_id"] = str(d["_id"])
-        d["patient_id"] = str(d["patient_id"])
-    return docs
 
 # ─────────────────────────────────────────────────────────────
 # ALERTS
