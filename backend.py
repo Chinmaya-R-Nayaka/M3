@@ -631,6 +631,18 @@ def create_immunization(body: ImmunizationCreate):
     }
 
 
+@app.patch("/immunization/{record_id}/resolve", response_model=MessageResponse)
+def resolve_immunization(record_id: str):
+    result = immunization_col.update_one(
+        {"_id": oid(record_id)},
+        {"$set": {"delayed": False}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Immunization record not found")
+    
+    return {"message": "Immunization delay resolved."}
+
+
 @app.get("/immunization/{patient_id}")
 def get_immunization(patient_id: str):
     docs = list(immunization_col.find({"patient_id": oid(patient_id)}))
@@ -670,6 +682,18 @@ def create_milestone(body: MilestoneCreate):
         "patient_name": patient["name"],
         **doc
     }
+
+
+@app.patch("/milestones/{record_id}/resolve", response_model=MessageResponse)
+def resolve_milestone(record_id: str):
+    result = milestone_col.update_one(
+        {"_id": oid(record_id)},
+        {"$set": {"delayed": False}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Milestone record not found")
+    
+    return {"message": "Milestone delay resolved."}
 
 
 @app.get("/milestones/{patient_id}")
